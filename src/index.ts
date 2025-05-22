@@ -1,10 +1,13 @@
+// src/index.ts
 import express from 'express';
+import routes from './routes/index.js';
 import { PORT } from './config/env.js';
-import analyzeRouter from './routes/analyze.js';
 
 const app = express();
 app.use(express.json());
-app.use('/analyze', analyzeRouter);
+
+// Єдиний імпорт маршруту
+app.use('/', routes);
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);

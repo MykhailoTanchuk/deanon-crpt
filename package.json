@@ -7,13 +7,16 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node --esm' src/index.ts",
+    "dev": "nodemon --watch src --ext ts --exec \"npx ts-node --esm src/index.ts\"",
     "lint": "eslint ./src --ext .ts,.js --fix",
     "format": "prettier --write 'src/**/*.{ts,js,json,md}'"
   },
   "dependencies": {
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "graphology": "^0.26.0",
+    "graphology-communities-louvain": "^2.0.2",
+    "graphology-types": "^0.24.8",
     "neo4j-driver": "^5.28.1",
     "web3": "^4.16.0"
   },
