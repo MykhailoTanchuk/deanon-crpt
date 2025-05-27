@@ -5,6 +5,9 @@ import { saveGraph, getSubgraph } from '../services/graphService.js';
 import { commonInput, changeAddress, labelClusters } from '../services/clusterService.js';
 import {getTransactions, TransactionData} from "../services/IngestionService.js";
 import {detectCommunities} from "../services/community.js";
+import Graph from "graphology";
+import {detectAnomalies, detectCycles, labelSuspicious} from "../services/AnomalyService.js";
+import {labelWashing, WashingInfo} from "../services/WashingService.js";
 
 const router = Router();
 const web3 = new Web3(WEB3_PROVIDER_URL);
@@ -24,6 +27,7 @@ router.post(
             }
 
             // Діапазон блоків
+            console.time('analyze');
             const latest = await web3.eth.getBlockNumber();
             const end = toBlock ?? Number(latest);
             const start = fromBlock ?? Math.max(0, end - 1000);
@@ -36,11 +40,15 @@ router.post(
             }
 
             transactions = Array.from(new Map(transactions.map(tx => [tx.hash, tx])).values());
-
+            console.timeEnd('analyze')
             // 2. Graph build
+            console.time('graph');
             await saveGraph(transactions);
+            console.timeEnd('graph')
 
             // 3. Heuristics
+            console.time('heuristics');
+
             const commonClusters = commonInput(transactions);
             const changeClusters = changeAddress(transactions);
             const clusters = [...commonClusters, ...changeClusters];
@@ -52,16 +60,52 @@ router.post(
 
                 await labelClusters(uniqueClusters);
             }
+            console.timeEnd('heuristics')
+
 
             // 4. Subgraph for visualization
-            const graph = await getSubgraph(addresses);
+            console.time('subgraph');
+
+            const subgraph = await getSubgraph(addresses);
+
+            // Convert to graphology Graph instance
+            const graph = new Graph({ multi: true, type: 'directed' });
+            subgraph.nodes.forEach(node => graph.addNode(node.id));
+            subgraph.edges.forEach(edge => {
+                graph.addEdge(edge.from, edge.to, {
+                    hash: edge.hash,
+                    value: edge.value,
+                    timestamp: edge.timestamp
+                });
+            });
+            console.timeEnd('subgraph')
+
 
             // 5. Community detection
-            const { communityIds, communities } = await detectCommunities(addresses);
+            console.time('community');
 
-            // 6. Stubs for future anomalies and washing
-            const anomalies: unknown[] = [];
-            const washing: unknown[] = [];
+            const { communityIds, communities } = await detectCommunities(addresses);
+            console.timeEnd('community')
+
+            // 6. Anomaly detection
+            console.time('anomaly');
+
+            const cycles = detectCycles(graph);
+            const anomalies = detectAnomalies(graph);
+            labelSuspicious(graph, anomalies, cycles);
+            console.timeEnd('anomaly')
+
+            const washing: WashingInfo[] = labelWashing(transactions);
+
+            // Convert labeled graph back to simple structure
+            const resultGraph = {
+                nodes: subgraph.nodes.map(node => ({
+                    ...node,
+                    suspicious: graph.getNodeAttribute(node.id, 'suspicious') || false,
+                    inCycle: graph.getNodeAttribute(node.id, 'inCycle') || false
+                })),
+                edges: subgraph.edges
+            };
 
             res.json({
                 addresses,
@@ -69,12 +113,13 @@ router.post(
                 toBlock: end,
                 transactions,
                 clusters,
-                graph,
+                graph: resultGraph,
                 communities: {
                     nodeAssignments: Object.fromEntries(communityIds),
                     groups: Object.fromEntries(communities)
                 },
                 anomalies,
+                cycles,
                 washing,
             });
         } catch (err) {
@@ -85,3 +130,7 @@ router.post(
 );
 
 export default router;
+
+
+
+
